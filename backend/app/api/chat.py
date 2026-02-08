@@ -61,9 +61,13 @@ async def send_message(
     """
     Send a message in task chat
     
-    - User can ask questions or provide clarifications
+    - User can send text messages or file attachments
+    - Text files (.txt, .md) are processed by AI immediately
+    - Images/PDFs are stored but AI processing pending (Phase 2: Vision API)
     - AI responds based on task context
     """
+    import httpx
+    import os
     
     # Verify task ownership
     result = await db.execute(
@@ -80,11 +84,48 @@ async def send_message(
             detail="Task not found"
         )
     
+    # Determine if file has AI support
+    ai_supported_types = ['text', 'txt', 'md', 'markdown']
+    file_has_ai_support = False
+    file_content_for_ai = None
+    
+    # If file is attached, check if we can process it with AI
+    if message_data.file_url:
+        file_type = message_data.file_type or ''
+        file_name = message_data.file_name or ''
+        file_ext = file_name.split('.')[-1].lower() if '.' in file_name else ''
+        
+        # Check if this file type supports AI processing
+        if file_ext in ai_supported_types or file_type == 'text':
+            file_has_ai_support = True
+            # Load file content for AI
+            try:
+                backend_url = os.getenv('BACKEND_URL', 'http://localhost:8000')
+                file_full_url = f"{backend_url}{message_data.file_url}"
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(file_full_url)
+                    if response.status_code == 200:
+                        file_content_for_ai = response.text
+            except Exception as e:
+                print(f"Warning: Could not load file content: {e}")
+    
+    # Build content for user message
+    user_content = message_data.content or ""
+    if message_data.file_url and not file_has_ai_support:
+        # File attached but no AI support yet
+        user_content += f"\n\n[Datei hochgeladen: {message_data.file_name}]"
+    elif file_content_for_ai:
+        # Text file - include content for AI
+        user_content += f"\n\n--- Inhalt von {message_data.file_name} ---\n{file_content_for_ai}\n--- Ende ---"
+    
     # Save user message
     user_message = Message(
         task_id=task_id,
         role="user",
-        content=message_data.content,
+        content=user_content or None,
+        file_url=message_data.file_url,
+        file_name=message_data.file_name,
+        file_type=message_data.file_type,
         tokens_used=0,
         cost=0.0
     )

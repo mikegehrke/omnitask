@@ -61,10 +61,13 @@ async def create_task(
     """
     Create a new task
     
-    - Estimates cost
-    - Checks user balance/limit
-    - Creates task in PENDING status
-    - Starts execution in background
+    PAYMENT-FLOW (KRITISCH):
+    1. Task wird mit Status 'awaiting_payment' erstellt
+    2. Preis wird dem User angezeigt
+    3. User muss zahlen/bestätigen
+    4. ERST DANN wird Task zur Ausführung freigegeben (POST /tasks/{id}/confirm)
+    
+    WICHTIG: Kein Output/Execution vor Payment!
     """
     
     # Estimate cost
@@ -78,7 +81,7 @@ async def create_task(
     
     estimated_cost = price_info["total_price"]
     
-    # Check if user has enough credits/limit
+    # Check if user has enough credits/limit (vorab-prüfung)
     if current_user.plan == "free":
         if current_user.monthly_usage + estimated_cost > current_user.monthly_limit:
             raise HTTPException(
@@ -92,13 +95,14 @@ async def create_task(
             detail=f"Insufficient credits. Need ${estimated_cost:.2f}, have ${current_user.credits_balance:.2f}"
         )
     
-    # Create task
+    # Create task mit STATUS awaiting_payment
+    # Task wird NICHT sofort ausgeführt!
     new_task = Task(
         user_id=current_user.id,
         description=task_data.description,
         urgency=task_data.urgency.value,
         provider=task_data.provider.value,
-        status="pending",
+        status="awaiting_payment",  # KRITISCH: Nicht "pending"!
         estimated_cost=estimated_cost
     )
     
@@ -106,23 +110,7 @@ async def create_task(
     await db.commit()
     await db.refresh(new_task)
     
-    # Enqueue task to ARQ worker (production-safe)
-    from arq import create_pool
-    from arq.connections import RedisSettings
-    import os
-    
-    try:
-        redis = await create_pool(
-            RedisSettings(
-                host=os.getenv("REDIS_HOST", "redis"),
-                port=int(os.getenv("REDIS_PORT", "6379"))
-            )
-        )
-        await redis.enqueue_job('process_task', new_task.id)
-        await redis.close()
-        print(f"✅ Task {new_task.id} enqueued to worker")
-    except Exception as e:
-        print(f"⚠️ Failed to enqueue task {new_task.id}: {e}")
+    # KEIN ENQUEUE! Task wartet auf Payment/Bestätigung
     
     return new_task
 
@@ -268,5 +256,82 @@ async def cancel_task(
     
     await db.commit()
     await db.refresh(task)
+    
+    return task
+
+
+@router.post("/{task_id}/confirm", response_model=TaskResponse)
+async def confirm_task_payment(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Bestätigt Zahlung und startet Task-Ausführung
+    
+    PAYMENT-FLOW Schritt 2:
+    1. Prüft ob Task in 'awaiting_payment' Status
+    2. Zieht estimated_cost von User Credits ab
+    3. Setzt Status auf 'pending'
+    4. Enqueued Task zur Worker-Ausführung
+    
+    User muss VOR diesem Call AGB akzeptiert haben!
+    """
+    
+    result = await db.execute(
+        select(Task).where(
+            Task.id == task_id,
+            Task.user_id == current_user.id
+        )
+    )
+    
+    task = result.scalar_one_or_none()
+    
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+    
+    if task.status != "awaiting_payment":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Task status is {task.status}, expected awaiting_payment"
+        )
+    
+    # Final check: Hat User genug Credits?
+    if current_user.credits_balance < task.estimated_cost:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"Insufficient credits"
+        )
+    
+    # Geld abziehen (WICHTIG!)
+    current_user.credits_balance -= task.estimated_cost
+    current_user.monthly_usage += task.estimated_cost
+    
+    # Status auf pending setzen
+    task.status = "pending"
+    
+    await db.commit()
+    await db.refresh(task)
+    
+    # JETZT Task in Queue stellen
+    from arq import create_pool
+    from arq.connections import RedisSettings
+    import os
+    
+    try:
+        redis = await create_pool(
+            RedisSettings(
+                host=os.getenv("REDIS_HOST", "redis"),
+                port=int(os.getenv("REDIS_PORT", "6379"))
+            )
+        )
+        await redis.enqueue_job('process_task', task.id)
+        await redis.close()
+        print(f"✅ Task {task.id} payment confirmed, enqueued to worker")
+    except Exception as e:
+        print(f"⚠️ Failed to enqueue task {task.id}: {e}")
     
     return task

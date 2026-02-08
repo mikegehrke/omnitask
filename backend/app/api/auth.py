@@ -86,6 +86,10 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # Activate user on login (production fix for inactive users)
+    if not user.is_active:
+        user.is_active = True
+    
     # Update last login
     user.last_login = func.now()
     await db.commit()

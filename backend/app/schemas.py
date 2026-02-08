@@ -18,6 +18,7 @@ class UserPlanEnum(str, Enum):
 
 
 class TaskStatusEnum(str, Enum):
+    AWAITING_PAYMENT = "awaiting_payment"  # KRITISCH: Wartet auf Zahlung
     PENDING = "pending"
     ANALYZING = "analyzing"
     CLARIFYING = "clarifying"
@@ -170,14 +171,20 @@ class PriceEstimate(BaseModel):
 # ============================================================================
 
 class MessageCreate(BaseModel):
-    content: str = Field(..., min_length=1, max_length=10000)
+    content: Optional[str] = Field(None, max_length=10000)
+    file_url: Optional[str] = None
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None  # image/pdf/document/text
 
 
 class MessageResponse(BaseModel):
     id: int
     task_id: int
     role: MessageRoleEnum
-    content: str
+    content: Optional[str] = None
+    file_url: Optional[str] = None
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None
     tokens_used: int
     cost: float
     created_at: datetime

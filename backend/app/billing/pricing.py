@@ -1,6 +1,11 @@
 """
 Pricing Engine
-Calculates costs for tasks based on provider, urgency, and complexity
+Calculates costs for tasks based on provider and AI costs
+
+FINALE PREISREGEL (VERBINDLICH):
+- KI-Kosten ≤ 0,49 € → Endpreis = 1,50 € (fix)
+- ab 0,50 € → Endpreis = KI-Kosten × 3 (200% Marge)
+- Kein Output vor Payment/Credit-OK
 """
 from typing import Dict
 
@@ -8,35 +13,26 @@ from typing import Dict
 # Provider base costs per 1K tokens (USD)
 PROVIDER_COSTS = {
     "openai": {
+        "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
         "gpt-4-turbo": {"input": 0.01, "output": 0.03},
         "gpt-3.5-turbo": {"input": 0.0005, "output": 0.0015},
     },
     "claude": {
         "claude-3-opus": {"input": 0.015, "output": 0.075},
         "claude-3-sonnet": {"input": 0.003, "output": 0.015},
+        "claude-3-haiku": {"input": 0.00025, "output": 0.00125},
     },
     "gemini": {
+        "gemini-1.5-flash": {"input": 0.00010, "output": 0.0004},
         "gemini-pro": {"input": 0.00025, "output": 0.0005},
     },
     "ollama": {
         "default": {"input": 0.0, "output": 0.0},  # Free!
     },
     "auto": {
-        "default": {"input": 0.001, "output": 0.002},  # Average
+        "default": {"input": 0.00015, "output": 0.0006},  # OpenAI gpt-4o-mini default
     }
 }
-
-
-# Urgency multipliers
-URGENCY_MULTIPLIERS = {
-    "flexible": 1.0,    # No rush
-    "today": 1.5,       # Within 24h
-    "asap": 2.5,        # Within 1h
-}
-
-
-# Profit margin
-MARGIN = 1.3  # 30% markup
 
 
 def estimate_tokens(description: str) -> int:
@@ -104,14 +100,13 @@ def calculate_task_price(
     """
     Calculate total task price
     
-    Formula:
-    base_cost = provider_cost(tokens)
-    urgency_fee = base_cost * (urgency_multiplier - 1)
-    total = (base_cost + urgency_fee) * margin
+    FINALE PREISREGEL (VERBINDLICH):
+    - KI-Kosten ≤ 0,49 € → Endpreis = 1,50 € (fix)
+    - ab 0,50 € → Endpreis = KI-Kosten × 3 (200% Marge)
     
     Args:
         description: Task description
-        urgency: Urgency level (flexible/today/asap)
+        urgency: Urgency level (kept for compatibility, not used in pricing)
         provider: AI provider
         estimated_tokens: Estimated token count
         
@@ -119,26 +114,22 @@ def calculate_task_price(
         Dict with price breakdown
     """
     
-    # Get base provider cost
-    provider_cost = get_provider_cost(provider, estimated_tokens)
+    # Get base AI provider cost
+    ai_cost = get_provider_cost(provider, estimated_tokens)
     
-    # Apply urgency multiplier
-    urgency_multiplier = URGENCY_MULTIPLIERS.get(urgency, 1.0)
-    urgency_fee = provider_cost * (urgency_multiplier - 1.0)
-    
-    # Calculate subtotal
-    subtotal = provider_cost + urgency_fee
-    
-    # Apply margin
-    total_price = subtotal * MARGIN
+    # Apply finale Preisregel
+    if ai_cost <= 0.49:
+        total_price = 1.50
+    else:
+        total_price = ai_cost * 3
     
     return {
-        "base_cost": round(provider_cost, 4),
-        "urgency_multiplier": urgency_multiplier,
-        "urgency_fee": round(urgency_fee, 4),
-        "provider_cost": round(provider_cost, 4),
+        "base_cost": round(ai_cost, 4),
+        "ai_cost": round(ai_cost, 4),
+        "provider_cost": round(ai_cost, 4),
         "total_price": round(total_price, 2),
-        "currency": "USD"
+        "currency": "EUR",
+        "pricing_rule": "≤0.49€→1.50€ | ≥0.50€→×3"
     }
 
 

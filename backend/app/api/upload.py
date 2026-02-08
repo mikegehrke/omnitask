@@ -15,6 +15,20 @@ async def upload_file(file: UploadFile = File(...)):
     file_name = f"{uuid.uuid4()}.{file_ext}"
     file_path = os.path.join(UPLOAD_DIR, file_name)
     
+    # Determine file type
+    image_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']
+    pdf_exts = ['pdf']
+    doc_exts = ['doc', 'docx', 'txt', 'rtf', 'odt', 'md', 'markdown']
+    
+    if file_ext.lower() in image_exts:
+        file_type = 'image'
+    elif file_ext.lower() in pdf_exts:
+        file_type = 'pdf'
+    elif file_ext.lower() in doc_exts:
+        file_type = 'document'
+    else:
+        file_type = 'file'
+    
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -23,4 +37,8 @@ async def upload_file(file: UploadFile = File(...)):
         
     # Return URL (assuming static file serving is set up)
     # In production, upload to S3 here and return S3 URL
-    return {"url": f"/static/uploads/{file_name}", "filename": file.filename}
+    return {
+        "url": f"/static/uploads/{file_name}",
+        "filename": file.filename,
+        "file_type": file_type
+    }

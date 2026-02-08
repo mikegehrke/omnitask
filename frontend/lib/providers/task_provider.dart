@@ -1,100 +1,213 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import '../services/api_service.dart';
 import '../models/task.dart';
 
 class TaskProvider with ChangeNotifier {
-  List<Task> _tasks = [];
-  bool _isLoading = false;
+  final ApiService _apiService = ApiService();
   
-  // Change localhost to 10.0.2.2 for Android Emulator, or localhost for iOS/Web
-  // For production this would be an ENV var or real domain
-  static const String baseUrl = 'http://localhost:8000/api/v1'; 
+  List<Task> _tasks = [];
+  Task? _selectedTask;
+  List<Message> _messages = [];
+  bool _isLoading = false;
+  String? _error;
 
   List<Task> get tasks => _tasks;
+  Task? get selectedTask => _selectedTask;
+  List<Message> get messages => _messages;
   bool get isLoading => _isLoading;
+  String? get error => _error;
 
   Future<void> fetchTasks() async {
     _isLoading = true;
+    _error = null;
     notifyListeners();
+    
     try {
-      final response = await http.get(Uri.parse('$baseUrl/tasks/'));
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        _tasks = data.map((json) => Task.fromJson(json)).toList();
-      }
+      final data = await _apiService.getTasks();
+      _tasks = data.map((json) => Task.fromJson(json)).toList();
     } catch (e) {
-      print("Error fetching tasks: $e");
-    } finally {
-      _isLoading = false;
+      _error = e.toString();
+    }
+    
+    _isLoading = false;
+    notifyListeners();
+  }
+
+  Future<void> fetchTask(int taskId) async {
+    try {
+      final data = await _apiService.getTask(taskId);
+      _selectedTask = Task.fromJson(data);
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
       notifyListeners();
     }
   }
 
-  Future<Task?> createTask(String description, String urgency) async {
+  Future<Task?> createTask({
+    required String description,
+    String urgency = 'flexible',
+    String? provider,
+  }) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/tasks/'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'description': description,
-          'urgency': urgency, // 1h, today, tomorrow, flexible
-        }),
+      final data = await _apiService.createTask(
+        description: description,
+        urgency: urgency,
+        provider: provider,
       );
-      if (response.statusCode == 200) {
-        await fetchTasks();
-        return Task.fromJson(json.decode(response.body));
+      
+      final task = Task.fromJson(data);
+      _tasks.insert(0, task);
+      _isLoading = false;
+      notifyListeners();
+      return task;
+    } catch (e) {
+      _error = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<void> deleteTask(int taskId) async {
+    try {
+      await _apiService.deleteTask(taskId);
+      _tasks.removeWhere((task) => task.id == taskId);
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> cancelTask(int taskId) async {
+    try {
+      final data = await _apiService.cancelTask(taskId);
+      final updatedTask = Task.fromJson(data);
+      final index = _tasks.indexWhere((t) => t.id == taskId);
+      if (index != -1) {
+        _tasks[index] = updatedTask;
+        notifyListeners();
       }
     } catch (e) {
-      print("Error creating task: $e");
+      _error = e.toString();
+      notifyListeners();
     }
-    return null;
   }
   
-  // Chat logic
-  List<Message> _messages = [];
-  List<Message> get messages => _messages;
-
+  // Chat
   Future<void> fetchMessages(int taskId) async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/chat/$taskId/messages'));
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        _messages = data.map((json) => Message.fromJson(json)).toList();
-        notifyListeners();
-      }
+      final data = await _apiService.getMessages(taskId);
+      _messages = data.map((json) => Message.fromJson(json)).toList();
+      notifyListeners();
     } catch (e) {
-       print("Error chat: $e");
+      _error = e.toString();
+      notifyListeners();
     }
   }
 
-  Future<void> sendMessage(int taskId, String content) async {
+  Future<void> sendMessage(
+    int taskId, 
+    {String? content, 
+    String? fileUrl, 
+    String? fileName, 
+    String? fileType}
+  ) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/chat/$taskId/messages'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'content': content}),
+      final data = await _apiService.sendMessage(
+        taskId: taskId, 
+        content: content,
+        fileUrl: fileUrl,
+        fileName: fileName,
+        fileType: fileType,
       );
-      if (response.statusCode == 200) {
-        _messages.add(Message.fromJson(json.decode(response.body)));
-        notifyListeners();
+      _messages.add(Message.fromJson(data));
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+    }
+  }
+  
+  Future<Map<String, dynamic>?> uploadFile({
+    String? filePath,
+    List<int>? bytes,
+    required String filename,
+  }) async {
+    try {
+      return await _apiService.uploadFile(
+        filePath: filePath,
+        bytes: bytes,
+        filename: filename,
+      );
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+  
+  Future<void> uploadAndSendFile(
+    int taskId,
+    {
+      String? filePath,
+      List<int>? bytes,
+      required String filename,
+      String? message,
+    }
+  ) async {
+    try {
+      // Upload file first
+      final uploadResult = await uploadFile(
+        filePath: filePath,
+        bytes: bytes,
+        filename: filename,
+      );
+      
+      if (uploadResult != null) {
+        // Send message with file attachment
+        await sendMessage(
+          taskId,
+          content: message,
+          fileUrl: uploadResult['url'],
+          fileName: uploadResult['filename'],
+          fileType: uploadResult['file_type'],
+        );
       }
     } catch (e) {
-       print("Send error: $e");
+      _error = e.toString();
+      notifyListeners();
     }
   }
   
   // Payment
   Future<String?> getCheckoutUrl(int taskId) async {
     try {
-      final response = await http.post(Uri.parse('$baseUrl/payments/create-checkout-session/$taskId'));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return data['url'];
-      }
-    } catch(e) {
-      print("Payment error: $e");
+      final data = await _apiService.createCheckoutSession(taskId);
+      return data['url'];
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return null;
     }
-    return null;
+  }
+  
+  Future<bool> confirmPayment(int taskId) async {
+    try {
+      await _apiService.confirmTaskPayment(taskId);
+      // Refresh task to get updated status
+      await fetchTask(taskId);
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return false;
+    }
   }
 }
+

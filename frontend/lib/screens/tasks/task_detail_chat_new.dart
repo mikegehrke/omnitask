@@ -7,20 +7,19 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 
-import '../providers/task_provider.dart';
-import '../models/task.dart';
+import '../../providers/task_provider.dart';
+import '../../models/task.dart';
 
-class ChatScreen extends StatefulWidget {
+class TaskDetailChat extends StatefulWidget {
   final Task task;
-  const ChatScreen({super.key, required this.task});
+  const TaskDetailChat({super.key, required this.task});
 
   @override
-  State<ChatScreen> createState() => _ChatScreenState();
+  State<TaskDetailChat> createState() => _TaskDetailChatState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _TaskDetailChatState extends State<TaskDetailChat> {
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
 
@@ -29,6 +28,11 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _scrollDebounce;
 
   final List<_PendingItem> _pending = [];
+  
+  // Für Datei-Uploads die im Textfeld angezeigt werden
+  String? _pendingFileText;
+  List<int>? _pendingFileBytes;
+  String? _pendingFileName;
 
   @override
   void dispose() {
@@ -45,13 +49,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final items = [...provider.messages.map(_ChatItem.fromMessage), ..._pending.map(_ChatItem.fromPending)];
     _autoScroll();
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF212121),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF2B2B2B),
-        title: Text(widget.task.description),
-      ),
-      body: Column(
+    return Container(
+      color: const Color(0xFF212121),
+      child: Column(
         children: [
           Expanded(
             child: items.isEmpty
@@ -79,23 +79,33 @@ class _ChatScreenState extends State<ChatScreen> {
       );
 
   Widget _input(TaskProvider provider) {
-    final canSend = widget.task.isPaid && _inputCtrl.text.trim().isNotEmpty;
+    final hasText = _inputCtrl.text.trim().isNotEmpty;
+    final hasPendingFile = _pendingFileBytes != null;
+    final canSend = widget.task.isPaid && (hasText || hasPendingFile);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       color: const Color(0xFF2B2B2B),
       child: Column(
         children: [
-          if (widget.task.isPaid)
-            Row(
-              children: [
-                _iconBtn(Icons.attach_file, () => _pickFile(provider)),
-                _iconBtn(Icons.image, () => _pickImage(provider)),
-                _iconBtn(Icons.picture_as_pdf, () => _pickDoc(provider)),
-                const Spacer(),
-              ],
-            ),
-          const SizedBox(height: 8),
+          // UPLOAD BUTTONS - IMMER ZEIGEN (AUCH BEI UNBEZAHLTEN TASKS)
+          Row(
+            children: [
+              _iconBtn(Icons.attach_file, 'Datei', () => _pickFile(provider)),
+              const SizedBox(width: 8),
+              _iconBtn(Icons.image, 'Bild', () => _pickImage(provider)),
+              const SizedBox(width: 8),
+              _iconBtn(Icons.picture_as_pdf, 'PDF', () => _pickDoc(provider)),
+              const Spacer(),
+              if (hasPendingFile)
+                IconButton(
+                  icon: const Icon(Icons.clear, color: Colors.red, size: 20),
+                  onPressed: _clearAttachedFile,
+                  tooltip: 'Datei entfernen',
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
@@ -122,9 +132,27 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _iconBtn(IconData icon, VoidCallback onTap) => IconButton(
-        icon: Icon(icon, color: Colors.grey),
-        onPressed: onTap,
+  Widget _iconBtn(IconData icon, String label, VoidCallback onTap) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.white30),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: Colors.white, size: 26),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+        ),
       );
 
   // ---------------- Chat Item ----------------
@@ -133,31 +161,34 @@ class _ChatScreenState extends State<ChatScreen> {
     final isUser = item.role == 'user';
 
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      color: isUser ? const Color(0xFF212121) : const Color(0xFF2B2B2B),
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+      color: const Color(0xFF212121), // SCHWARZ - kein separater Hintergrund
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
-          const SizedBox(width: 24),
           if (!isUser)
             Container(
               width: 28,
               height: 28,
               alignment: Alignment.center,
-              decoration: BoxDecoration(color: Colors.teal, borderRadius: BorderRadius.circular(4)),
-              child: const Text('AI', style: TextStyle(color: Colors.white, fontSize: 12)),
+              decoration: BoxDecoration(color: const Color(0xFF10A37F), borderRadius: BorderRadius.circular(4)),
+              child: const Text('AI', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
             ),
           if (!isUser) const SizedBox(width: 16),
-          Expanded(
+          Flexible(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
-                MarkdownBody(
-                  data: item.content ?? '',
-                  selectable: true,
-                  styleSheet: MarkdownStyleSheet(
-                    p: const TextStyle(color: Colors.white, height: 1.6),
-                    code: const TextStyle(backgroundColor: Color(0xFF40414F)),
+                Container(
+                  alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 600),
+                    child: Text(
+                      item.content ?? '',
+                      textAlign: isUser ? TextAlign.right : TextAlign.left,
+                      style: const TextStyle(color: Colors.white, height: 1.6, fontSize: 15),
+                    ),
                   ),
                 ),
                 if (!isUser) _actions(item.content ?? '', index),
@@ -165,6 +196,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: const [
                         SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
                         SizedBox(width: 8),
@@ -175,7 +207,15 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
           ),
-          const SizedBox(width: 24),
+          if (isUser) const SizedBox(width: 16),
+          if (isUser)
+            Container(
+              width: 28,
+              height: 28,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: Colors.blue[700], borderRadius: BorderRadius.circular(14)),
+              child: const Icon(Icons.person, color: Colors.white, size: 16),
+            ),
         ],
       ),
     );
@@ -205,8 +245,30 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _send(TaskProvider provider) async {
     final text = _inputCtrl.text.trim();
     _inputCtrl.clear();
+    
     setState(() => _pending.add(_PendingItem(text)));
-    await provider.sendMessage(widget.task.id!, content: text);
+    
+    // Prüfe ob eine Datei angehängt ist
+    if (_pendingFileBytes != null && _pendingFileName != null) {
+      // Sende Text mit Datei
+      await provider.uploadAndSendFile(
+        widget.task.id!,
+        bytes: _pendingFileBytes!,
+        filename: _pendingFileName!,
+        message: text,
+      );
+      
+      // Datei-Daten zurücksetzen
+      setState(() {
+        _pendingFileBytes = null;
+        _pendingFileName = null;
+        _pendingFileText = null;
+      });
+    } else {
+      // Normale Textnachricht
+      await provider.sendMessage(widget.task.id!, content: text);
+    }
+    
     setState(() => _pending.removeAt(0));
   }
 
@@ -252,17 +314,89 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _pickFile(TaskProvider p) async {
     final r = await FilePicker.platform.pickFiles(withData: true);
     if (r == null) return;
-    setState(() => _pending.add(_PendingItem('📎 ${r.files.single.name}')));
-    await p.uploadAndSendFile(
-      widget.task.id!,
-      bytes: r.files.single.bytes!,
-      filename: r.files.single.name,
-    );
-    setState(() => _pending.removeAt(0));
+    
+    // Datei ins Textfeld einfügen statt direkt senden
+    final fileName = r.files.single.name;
+    final fileEmoji = _getFileEmoji(fileName);
+    final fileText = '$fileEmoji $fileName';
+    
+    setState(() {
+      _pendingFileBytes = r.files.single.bytes!;
+      _pendingFileName = fileName;
+      _pendingFileText = fileText;
+      
+      // Ins Textfeld einfügen
+      final currentText = _inputCtrl.text;
+      if (currentText.isEmpty) {
+        _inputCtrl.text = fileText;
+      } else {
+        _inputCtrl.text = '$currentText\n$fileText';
+      }
+    });
   }
 
   Future<void> _pickImage(TaskProvider p) => _pickFile(p);
   Future<void> _pickDoc(TaskProvider p) => _pickFile(p);
+  
+  String _getFileEmoji(String fileName) {
+    final extension = fileName.toLowerCase().split('.').last;
+    switch (extension) {
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+      case 'gif':
+      case 'bmp':
+      case 'svg':
+      case 'webp':
+        return '🖼️';
+      case 'pdf':
+        return '📄';
+      case 'doc':
+      case 'docx':
+        return '📝';
+      case 'xls':
+      case 'xlsx':
+        return '📊';
+      case 'ppt':
+      case 'pptx':
+        return '📋';
+      case 'zip':
+      case 'rar':
+      case '7z':
+        return '🗜️';
+      case 'mp3':
+      case 'wav':
+      case 'flac':
+        return '🎵';
+      case 'mp4':
+      case 'avi':
+      case 'mkv':
+        return '🎬';
+      case 'txt':
+        return '📄';
+      default:
+        return '📎';
+    }
+  }
+  
+  void _clearAttachedFile() {
+    setState(() {
+      // Entferne Datei-Referenz aus dem Textfeld bevor wir die Variablen zurücksetzen
+      final currentText = _inputCtrl.text;
+      final fileTextToRemove = _pendingFileText;
+      
+      if (fileTextToRemove != null && currentText.contains(fileTextToRemove)) {
+        final newText = currentText.replaceAll(fileTextToRemove, '').trim();
+        final lines = newText.split('\n').where((line) => line.trim().isNotEmpty).toList();
+        _inputCtrl.text = lines.join('\n');
+      }
+      
+      // Jetzt die Datei-Daten zurücksetzen
+      _pendingFileBytes = null;
+      _pendingFileName = null;
+      _pendingFileText = null;
+    });
+  }
 
   // ---------------- Helpers ----------------
 

@@ -18,8 +18,8 @@ class _CreateTaskSheetState extends State<CreateTaskSheet> {
     setState(() => _submitting = true);
     
     final newTask = await Provider.of<TaskProvider>(context, listen: false).createTask(
-      _controller.text,
-      _urgency,
+      description: _controller.text,
+      urgency: _urgency,
     );
     
     if (mounted) {

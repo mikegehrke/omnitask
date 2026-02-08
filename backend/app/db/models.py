@@ -21,6 +21,7 @@ class UserPlan(str, enum.Enum):
 
 
 class TaskStatus(str, enum.Enum):
+    AWAITING_PAYMENT = "awaiting_payment"  # KRITISCH: Task wartet auf Zahlung
     PENDING = "pending"
     ANALYZING = "analyzing"
     CLARIFYING = "clarifying"
@@ -162,7 +163,12 @@ class Message(Base):
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False, index=True)
     
     role = Column(SQLEnum(MessageRole), nullable=False)
-    content = Column(Text, nullable=False)
+    content = Column(Text, nullable=True)  # Nullable if message is file-only
+    
+    # File attachments
+    file_url = Column(String, nullable=True)
+    file_name = Column(String, nullable=True)
+    file_type = Column(String, nullable=True)  # image/pdf/document/text
     
     # Metadata
     tokens_used = Column(Integer, default=0, nullable=False)
