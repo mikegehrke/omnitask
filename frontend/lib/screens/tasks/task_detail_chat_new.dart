@@ -72,16 +72,28 @@ class _TaskDetailChatState extends State<TaskDetailChat> {
   // ---------------- UI ----------------
 
   Widget _empty() => Center(
-        child: Text(
-          'Schreibe eine Nachricht oder lade eine Datei hoch',
-          style: TextStyle(color: Colors.grey[600]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[600]),
+            const SizedBox(height: 16),
+            Text(
+              'Schreibe eine Nachricht oder lade eine Datei hoch',
+              style: TextStyle(color: Colors.grey[600], fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Dateien werden mit Emoji-Icons im Chat angezeigt 📎🖼️📄',
+              style: TextStyle(color: Colors.grey[700], fontSize: 12),
+            ),
+          ],
         ),
       );
 
   Widget _input(TaskProvider provider) {
     final hasText = _inputCtrl.text.trim().isNotEmpty;
     final hasPendingFile = _pendingFileBytes != null;
-    final canSend = widget.task.isPaid && (hasText || hasPendingFile); // NUR BEI BEZAHLTEN TASKS SENDEN
+    final canSend = hasText || hasPendingFile; // SENDEN ERLAUBEN WENN TEXT ODER DATEI
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -184,10 +196,58 @@ class _TaskDetailChatState extends State<TaskDetailChat> {
                   alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 600),
-                    child: Text(
-                      item.content ?? '',
-                      textAlign: isUser ? TextAlign.right : TextAlign.left,
-                      style: const TextStyle(color: Colors.white, height: 1.6, fontSize: 15),
+                    child: Column(
+                      crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                      children: [
+                        // Datei-Anzeige falls vorhanden
+                        if (item.fileName != null)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF40414F),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey.shade700),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _getFileEmoji(item.fileName ?? ''),
+                                  style: const TextStyle(fontSize: 20),
+                                ),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    item.fileName ?? 'Unbekannte Datei',
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (item.fileType != null)
+                                  Container(
+                                    margin: const EdgeInsets.only(left: 8),
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF10A37F).withOpacity(0.3),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      item.fileType!.toUpperCase(),
+                                      style: const TextStyle(color: Color(0xFF10A37F), fontSize: 10),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        // Text-Inhalt falls vorhanden  
+                        if (item.content != null && item.content!.isNotEmpty)
+                          Text(
+                            item.content!,
+                            textAlign: isUser ? TextAlign.right : TextAlign.left,
+                            style: const TextStyle(color: Colors.white, height: 1.6, fontSize: 15),
+                          ),
+                      ],
                     ),
                   ),
                 ),
@@ -421,11 +481,21 @@ class _TaskDetailChatState extends State<TaskDetailChat> {
 class _ChatItem {
   final String role;
   final String? content;
+  final String? fileName;
+  final String? fileType;
+  final String? fileUrl;
   final bool isPending;
 
-  _ChatItem(this.role, this.content, {this.isPending = false});
+  _ChatItem(this.role, this.content, {this.fileName, this.fileType, this.fileUrl, this.isPending = false});
 
-  factory _ChatItem.fromMessage(Message m) => _ChatItem(m.role, m.content);
+  factory _ChatItem.fromMessage(Message m) => _ChatItem(
+    m.role, 
+    m.content, 
+    fileName: m.fileName,
+    fileType: m.fileType,
+    fileUrl: m.fileUrl,
+  );
+  
   factory _ChatItem.fromPending(_PendingItem p) => _ChatItem('user', p.text, isPending: true);
 }
 

@@ -72,9 +72,21 @@ class _ChatScreenState extends State<ChatScreen> {
   // ---------------- UI ----------------
 
   Widget _empty() => Center(
-        child: Text(
-          'Schreibe eine Nachricht oder lade eine Datei hoch',
-          style: TextStyle(color: Colors.grey[600]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[600]),
+            const SizedBox(height: 16),
+            Text(
+              'Schreibe eine Nachricht oder lade eine Datei hoch',
+              style: TextStyle(color: Colors.grey[600], fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Dateien werden mit Emoji-Icons im Chat angezeigt 📎🖼️📄',
+              style: TextStyle(color: Colors.grey[700], fontSize: 12),
+            ),
+          ],
         ),
       );
 
@@ -152,14 +164,57 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                MarkdownBody(
-                  data: item.content ?? '',
-                  selectable: true,
-                  styleSheet: MarkdownStyleSheet(
-                    p: const TextStyle(color: Colors.white, height: 1.6),
-                    code: const TextStyle(backgroundColor: Color(0xFF40414F)),
+                // Datei-Anzeige falls vorhanden
+                if (item.fileName != null)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF40414F),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade700),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _getFileEmoji(item.fileName ?? ''),
+                          style: const TextStyle(fontSize: 20),
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            item.fileName ?? 'Unbekannte Datei',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (item.fileType != null)
+                          Container(
+                            margin: const EdgeInsets.only(left: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.teal.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              item.fileType!.toUpperCase(),
+                              style: const TextStyle(color: Colors.teal, fontSize: 10),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
+                // Text-Inhalt falls vorhanden  
+                if (item.content != null && item.content!.isNotEmpty)
+                  MarkdownBody(
+                    data: item.content!,
+                    selectable: true,
+                    styleSheet: MarkdownStyleSheet(
+                      p: const TextStyle(color: Colors.white, height: 1.6),
+                      code: const TextStyle(backgroundColor: Color(0xFF40414F)),
+                    ),
+                  ),
                 if (!isUser) _actions(item.content ?? '', index),
                 if (item.isPending)
                   Padding(
@@ -280,6 +335,34 @@ class _ChatScreenState extends State<ChatScreen> {
       SnackBar(content: Text(m), duration: const Duration(seconds: 1)),
     );
   }
+
+  // ---------------- File Helper ----------------
+
+  String _getFileEmoji(String fileName) {
+    final ext = fileName.toLowerCase().split('.').last;
+    switch (ext) {
+      case 'jpg': case 'jpeg': case 'png': case 'gif': case 'bmp': case 'webp': case 'svg':
+        return '🖼️';
+      case 'pdf':
+        return '📄';
+      case 'doc': case 'docx': case 'rtf':
+        return '📝';
+      case 'xls': case 'xlsx': case 'csv':
+        return '📊';
+      case 'ppt': case 'pptx':
+        return '📊';
+      case 'zip': case 'rar': case '7z': case 'tar': case 'gz':
+        return '🗜️';
+      case 'mp3': case 'wav': case 'flac': case 'aac': case 'm4a':
+        return '🎵';
+      case 'mp4': case 'avi': case 'mov': case 'mkv': case 'wmv':
+        return '🎬';
+      case 'txt': case 'md': case 'json': case 'xml': case 'yaml': case 'yml':
+        return '📄';
+      default:
+        return '📎';
+    }
+  }
 }
 
 // ---------------- Models ----------------
@@ -287,11 +370,21 @@ class _ChatScreenState extends State<ChatScreen> {
 class _ChatItem {
   final String role;
   final String? content;
+  final String? fileName;
+  final String? fileType;
+  final String? fileUrl;
   final bool isPending;
 
-  _ChatItem(this.role, this.content, {this.isPending = false});
+  _ChatItem(this.role, this.content, {this.fileName, this.fileType, this.fileUrl, this.isPending = false});
 
-  factory _ChatItem.fromMessage(Message m) => _ChatItem(m.role, m.content);
+  factory _ChatItem.fromMessage(Message m) => _ChatItem(
+    m.role, 
+    m.content, 
+    fileName: m.fileName,
+    fileType: m.fileType,
+    fileUrl: m.fileUrl,
+  );
+  
   factory _ChatItem.fromPending(_PendingItem p) => _ChatItem('user', p.text, isPending: true);
 }
 
