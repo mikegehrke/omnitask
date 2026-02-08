@@ -1,9 +1,13 @@
 from pydantic_settings import BaseSettings
+import os
 
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "OmniTask"
     API_V1_STR: str = "/api/v1"
+    
+    # Database - use DATABASE_URL from Render if available
+    DATABASE_URL: str = ""
     
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
@@ -27,6 +31,12 @@ class Settings(BaseSettings):
 
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
+        # Use Render's DATABASE_URL if available
+        if self.DATABASE_URL:
+            # Convert postgres:// to postgresql+asyncpg:// for SQLAlchemy
+            db_url = self.DATABASE_URL.replace("postgres://", "postgresql+asyncpg://")
+            return db_url
+        
         return (
             f"postgresql+asyncpg://{self.POSTGRES_USER}:"
             f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:"
