@@ -81,7 +81,7 @@ class _TaskDetailChatState extends State<TaskDetailChat> {
   Widget _input(TaskProvider provider) {
     final hasText = _inputCtrl.text.trim().isNotEmpty;
     final hasPendingFile = _pendingFileBytes != null;
-    final canSend = widget.task.isPaid && (hasText || hasPendingFile);
+    final canSend = hasText || hasPendingFile; // IMMER SENDEN ERLAUBEN
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
