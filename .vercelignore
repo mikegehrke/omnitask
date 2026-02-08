@@ -1,0 +1,15 @@
+backend/
+.git/
+.vscode/
+*.log
+.env
+docker-compose.yml
+README.md
+REBUILD_PLAN.md
+IMPLEMENTATION_OPTION_2.md
+frontend/.dart_tool/
+frontend/build/macos/
+frontend/build/ios/
+frontend/build/android/
+frontend/build/linux/
+frontend/build/windows/
